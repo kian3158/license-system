@@ -1,13 +1,14 @@
-// manager/cmd/licmgr/main.go
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 	"sync"
 	"time"
+	"crypto/ed25519"
 )
 
 // simple in-memory store for dev
@@ -126,22 +127,44 @@ func reportHandler(w http.ResponseWriter, r *http.Request) {
 
 	clientID, _ := req["client_id"].(string)
 	licenseID, _ := req["license_id"].(string)
-	usageSince, _ := req["usage_bytes_since_last"].(float64)
 	totalUsage, _ := req["total_usage_bytes"].(float64)
+	sigB64, _ := req["signature"].(string)
 
-	if clientID == "" || licenseID == "" {
+	if clientID == "" || licenseID == "" || sigB64 == "" {
 		http.Error(w, "missing required fields", http.StatusBadRequest)
 		return
 	}
 
 	mu.Lock()
 	ci, ok := store[clientID]
+	mu.Unlock()
 	if !ok {
-		mu.Unlock()
 		http.Error(w, "unknown client", http.StatusBadRequest)
 		return
 	}
-	_ = usageSince
+
+	sig, err := base64.StdEncoding.DecodeString(sigB64)
+	if err != nil {
+		http.Error(w, "invalid signature encoding", http.StatusBadRequest)
+		return
+	}
+
+	delete(req, "signature")
+	canonical, _ := json.Marshal(req)
+
+	pubKeyBytes, err := base64.StdEncoding.DecodeString(ci.PubKey)
+	if err != nil {
+		http.Error(w, "invalid stored public key", http.StatusInternalServerError)
+		return
+	}
+
+	if !ed25519.Verify(pubKeyBytes, canonical, sig) {
+		log.Printf("Signature verification failed for client %s", clientID)
+		http.Error(w, "signature verification failed", http.StatusBadRequest)
+		return
+	}
+
+	mu.Lock()
 	ci.TotalUsage = int64(totalUsage)
 	allowed := ci.TotalUsage <= ci.QuotaBytes
 	remaining := ci.QuotaBytes - ci.TotalUsage

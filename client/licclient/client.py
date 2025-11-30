@@ -20,6 +20,7 @@ class LicenseClient:
         self.client_id = client_id
         self.license_id = None
         self.sk = self._load_hw_key()
+        self.last_total = 0
 
     def _load_hw_key(self):
         """Load signing key from hw.json"""
@@ -45,31 +46,40 @@ class LicenseClient:
         print("HEARTBEAT:", r.json())
 
     def register(self):
+        pub_key_b64 = base64.b64encode(self.sk.verify_key.encode()).decode("utf-8")
         payload = {
             "client_id": self.client_id,
-            "pub_key": "dev-pubkey-placeholder",
+            "pub_key": pub_key_b64,  # send actual public key
             "fingerprint": {"machine_id": "dev-machine-1"},
             "app_id": "api-cybernetics",
             "version": "0.1",
         }
         r = requests.post(f"{BASE}/register", json=payload)
-        print("REGISTER RESPONSE:", r.status_code, r.json())
-        self.license_id = r.json().get("license", {}).get("license_id", "LIC-DEV")
-        return r.json()
+        data = r.json()
+        print("REGISTER RESPONSE:", r.status_code, data)
+        self.license_id = data.get("license", {}).get("license_id", "LIC-DEV")
+        return data
 
     def report(self, total_usage):
         if not self.license_id:
             raise ValueError("Client not registered yet")
+        usage_since_last = total_usage - self.last_total
+        self.last_total = total_usage
+
         payload = {
             "client_id": self.client_id,
             "license_id": self.license_id,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "usage_bytes_since_last": 1024 * 1024,
+            "usage_bytes_since_last": usage_since_last,
             "total_usage_bytes": total_usage,
         }
         payload["signature"] = self._sign_payload(payload)
         r = requests.post(f"{BASE}/report", json=payload)
-        print("REPORT RESPONSE:", r.status_code, r.json())
+        resp = r.json()
+        status = "ALLOWED" if resp.get("allowed") else "DENIED"
+        print(
+            f"REPORT: {status}, Remaining: {resp.get('remaining_bytes')} bytes, Action: {resp.get('action')}"
+        )
 
 
 if __name__ == "__main__":
