@@ -1,6 +1,14 @@
 import requests
 import time
 import uuid
+import json
+import base64
+from nacl.signing import SigningKey
+import os
+
+# automatically find hw.json relative to this file
+HW_FILE = os.path.join(os.path.dirname(__file__), "../../hw-emulator/hw.json")
+HW_FILE = os.path.abspath(HW_FILE)  # get absolute path
 
 BASE = "http://localhost:8080"
 
@@ -11,6 +19,22 @@ class LicenseClient:
             client_id = str(uuid.uuid4())
         self.client_id = client_id
         self.license_id = None
+        self.sk = self._load_hw_key()
+
+    def _load_hw_key(self):
+        """Load signing key from hw.json"""
+        with open(HW_FILE, "r") as f:
+            j = json.load(f)
+        sk_b = base64.b64decode(j["private_key_base64"])
+        return SigningKey(sk_b)
+
+    def _sign_payload(self, payload):
+        """Sign payload with HW private key"""
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        sig = self.sk.sign(canonical).signature
+        return base64.b64encode(sig).decode("utf-8")
 
     def ping(self):
         r = requests.get(f"{BASE}/ping")
@@ -42,7 +66,16 @@ class LicenseClient:
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "usage_bytes_since_last": 1024 * 1024,
             "total_usage_bytes": total_usage,
-            "signature": "dev-client-sig",
         }
+        payload["signature"] = self._sign_payload(payload)
         r = requests.post(f"{BASE}/report", json=payload)
         print("REPORT RESPONSE:", r.status_code, r.json())
+
+
+if __name__ == "__main__":
+    client = LicenseClient()
+    client.ping()
+    client.heartbeat()
+    client.register()
+    client.report(10 * 1024 * 1024)  # 10 MB
+    client.report(110 * 1024 * 1024)  # 110 MB -> should exceed dev quota
