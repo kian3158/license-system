@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Register",
+  "type": "object",
+  "properties": {
+    "client_id": {"type": "string"},
+    "pub_key": {"type": "string"},
+    "fingerprint": {"type": "object"},
+    "app_id": {"type":"string"},
+    "version": {"type":"string"}
+  },
+  "required": ["client_id","pub_key","fingerprint","app_id"]
+}

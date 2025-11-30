@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Report",
+  "type": "object",
+  "properties": {
+    "client_id": {"type":"string"},
+    "license_id": {"type":"string"},
+    "timestamp": {"type":"string","format":"date-time"},
+    "usage_bytes_since_last": {"type":"integer"},
+    "total_usage_bytes": {"type":"integer"},
+    "signature": {"type":"string"}
+  },
+  "required": ["client_id","license_id","timestamp","total_usage_bytes","signature"]
+}
