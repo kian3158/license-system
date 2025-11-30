@@ -1,0 +1,32 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual env
+.env
+.venv/
+env/
+venv/
+
+# Python packaging
+dist/
+build/
+*.egg-info/
+
+# Docker / local secrets
+*.env
+hw-emulator/hw.json
+
+# Go build
+bin/
+*.exe
+*.test
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
