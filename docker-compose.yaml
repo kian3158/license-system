@@ -1,0 +1,15 @@
+version: "3.8"
+services:
+  hw-emulator:
+    build: ./hw-emulator
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./hw-emulator/hw.json:/app/hw.json:ro
+
+  licmgr:
+    build: ./manager
+    ports:
+      - "8080:8080"
+    depends_on:
+      - hw-emulator
