@@ -1,0 +1,18 @@
+{
+  "signature": "Z1fUYoGfiFOKBLWIH+Jk2Qs42qL/q2LlRnwoAutfJ+72Ty4pUefFU/IRML1c5gpyKomk5s0tX5W4X7EkYYZBBA==",
+  "summary": {
+    "clients": {
+      "3c1a659a-0e3e-41a1-86a0-9c1c66911a2c": {
+        "client_id": "3c1a659a-0e3e-41a1-86a0-9c1c66911a2c",
+        "expires_at": "2026-01-01T07:42:48Z",
+        "issued_at": "2025-12-02T07:42:48Z",
+        "license_id": "LIC-20251202074248",
+        "quota_bytes": 104857600,
+        "revoked": false,
+        "total_usage_bytes": 115343360
+      }
+    },
+    "date": "2025-12-02",
+    "generated_at": "2025-12-02T07:58:37Z"
+  }
+}

@@ -1,15 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
-	"crypto/ed25519"
 )
 
 // simple client info store
@@ -28,9 +33,16 @@ type ClientInfo struct {
 }
 
 var (
-	store   = map[string]*ClientInfo{}
-	storeMu sync.Mutex
-	dbFile  = "clients_store.json"
+	store       = map[string]*ClientInfo{}
+	storeMu     sync.Mutex
+	dbFile      = "clients_store.json"
+	hwEmuURL    = func() string { // override via HW_EMULATOR_URL env var if needed
+		if v := os.Getenv("HW_EMULATOR_URL"); v != "" {
+			return v
+		}
+		return "http://localhost:8000"
+	}()
+	summariesDir = "summaries"
 )
 
 func main() {
@@ -41,6 +53,13 @@ func main() {
 	http.HandleFunc("/register", registerHandler)
 	http.HandleFunc("/report", reportHandler)
 	http.HandleFunc("/revoke", revokeHandler)
+
+	// summary endpoints
+	http.HandleFunc("/generate_summary", generateSummaryHandler) // POST or GET for dev
+	http.HandleFunc("/summary/latest", latestSummaryHandler)     // GET
+
+	// start dev scheduler goroutine that periodically generates summaries
+	go startSummaryScheduler()
 
 	log.Println("License Manager running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -205,5 +224,135 @@ func loadStore() {
 		f, _ := os.Open(dbFile)
 		json.NewDecoder(f).Decode(&store)
 		f.Close()
+	}
+}
+
+/*****  S U M M A R Y   G E N E R A T I O N   &   HW  E M U  I N T E R A C T I O N  *****/
+
+// signWithHW posts the canonical payload to the HW-emulator and returns the base64 signature string
+func signWithHW(payload []byte) (string, error) {
+	url := fmt.Sprintf("%s/sign", hwEmuURL)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("hw sign request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := ioutil.ReadAll(resp.Body)
+		return "", fmt.Errorf("hw sign returned %d: %s", resp.StatusCode, string(b))
+	}
+	var out struct {
+		Signature string `json:"signature"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("invalid hw sign response: %w", err)
+	}
+	return out.Signature, nil
+}
+
+// generateSummary builds a summary object from current store, requests HW signature, and writes to disk.
+func generateSummary() (string, error) {
+	summary := map[string]interface{}{}
+	clients := map[string]interface{}{}
+
+	storeMu.Lock()
+	for id, ci := range store {
+		clients[id] = map[string]interface{}{
+			"client_id":         ci.ClientID,
+			"license_id":        ci.LicenseID,
+			"total_usage_bytes": ci.TotalUsage,
+			"quota_bytes":       ci.QuotaBytes,
+			"revoked":           ci.Revoked,
+			"issued_at":         ci.IssuedAt,
+			"expires_at":        ci.ExpiresAt,
+		}
+	}
+	storeMu.Unlock()
+
+	today := time.Now().UTC().Format("2006-01-02")
+	summary["date"] = today
+	summary["generated_at"] = time.Now().UTC().Format(time.RFC3339)
+	summary["clients"] = clients
+
+	canonical, err := json.Marshal(summary)
+	if err != nil {
+		return "", err
+	}
+
+	// get signature from HW emulator
+	sig, err := signWithHW(canonical)
+	if err != nil {
+		return "", err
+	}
+
+	outObj := map[string]interface{}{
+		"summary":   summary,
+		"signature": sig,
+	}
+	outBytes, err := json.MarshalIndent(outObj, "", "  ")
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(summariesDir, 0o755); err != nil {
+		return "", err
+	}
+
+	filename := filepath.Join(summariesDir, fmt.Sprintf("%s.json", today))
+	if err := os.WriteFile(filename, outBytes, 0o644); err != nil {
+		return "", err
+	}
+
+	return filename, nil
+}
+
+func generateSummaryHandler(w http.ResponseWriter, r *http.Request) {
+	filename, err := generateSummary()
+	if err != nil {
+		http.Error(w, "generate summary failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"status": "ok", "file": filename})
+}
+
+func latestSummaryHandler(w http.ResponseWriter, r *http.Request) {
+	files, err := os.ReadDir(summariesDir)
+	if err != nil || len(files) == 0 {
+		writeJSON(w, map[string]interface{}{"status": "ok", "found": false})
+		return
+	}
+	latest := ""
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		name := f.Name()
+		if name > latest {
+			latest = name
+		}
+	}
+	if latest == "" {
+		writeJSON(w, map[string]interface{}{"status": "ok", "found": false})
+		return
+	}
+	content, _ := os.ReadFile(filepath.Join(summariesDir, latest))
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(content)
+}
+
+func startSummaryScheduler() {
+	intervalMin := 1440 // daily by default
+	if v := os.Getenv("SUMMARY_INTERVAL_MIN"); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil {
+			intervalMin = iv
+		}
+	}
+	ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
+	for range ticker.C {
+		if fn, err := generateSummary(); err != nil {
+			log.Printf("generateSummary error: %v", err)
+		} else {
+			log.Printf("summary written: %s", fn)
+		}
 	}
 }
