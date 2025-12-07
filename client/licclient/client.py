@@ -5,11 +5,79 @@ import json
 import base64
 from nacl.signing import SigningKey
 import os
+import sys
+import hashlib
+from pathlib import Path
 
 HW_FILE = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../hw-emulator/hw.json")
 )
 BASE = "http://localhost:8080"
+
+# ---------------------------
+# INTEGRITY CHECK (ADDED)
+# ---------------------------
+
+
+def get_self_path():
+    exe = Path(sys.executable)
+    if exe.exists():
+        return exe
+    return Path(__file__).resolve()
+
+
+def sha256_of_file(p: Path):
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def load_expected_hash(path_hint: Path):
+    base = path_hint.parent
+    cand = base / "integrity.json"
+    if cand.exists():
+        try:
+            j = json.loads(cand.read_text(encoding="utf-8"))
+            return j.get("sha256")
+        except Exception:
+            return None
+
+    # dev fallback (repo root-ish)
+    cand2 = Path(__file__).resolve().parents[2] / "integrity.json"
+    if cand2.exists():
+        try:
+            j = json.loads(cand2.read_text(encoding="utf-8"))
+            return j.get("sha256")
+        except Exception:
+            return None
+
+    return None
+
+
+def check_integrity_or_exit():
+    if os.getenv("SKIP_INTEGRITY") == "1":
+        print("WARNING: Integrity check skipped via SKIP_INTEGRITY")
+        return
+
+    self_path = get_self_path()
+    expected = load_expected_hash(self_path)
+
+    if not expected:
+        print("WARNING: No integrity metadata found, continuing (dev mode)")
+        return
+
+    actual = sha256_of_file(self_path)
+
+    if actual != expected:
+        print("INTEGRITY CHECK FAILED: binary has been modified")
+        sys.exit(10)
+
+
+# ---------------------------
+# ORIGINAL CLIENT CODE
+# ---------------------------
 
 
 class LicenseClient:
@@ -76,6 +144,9 @@ class LicenseClient:
 
 
 if __name__ == "__main__":
+    # 🔒 Integrity check happens BEFORE anything else
+    check_integrity_or_exit()
+
     client = LicenseClient()
     client.ping()
     client.heartbeat()
