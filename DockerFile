@@ -1,0 +1,16 @@
+FROM debian:bookworm-slim
+
+# install any runtime libs your compiled binary needs (example)
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# copy compiled binary and wrapper into image
+COPY client.dist/client /usr/local/bin/license_client
+COPY run_client.sh /usr/local/bin/run_client.sh
+RUN chmod +x /usr/local/bin/license_client /usr/local/bin/run_client.sh
+
+# set defaults (overridable by docker run -e)
+ENV LICENSE_MANAGER_URL=http://license-manager:8080 \
+    HW_EMULATOR_URL=http://hw-emulator:8000
+
+ENTRYPOINT ["/usr/local/bin/run_client.sh"]
+CMD []
