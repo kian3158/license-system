@@ -1,0 +1,12 @@
+FROM golang:1.21-alpine AS build
+WORKDIR /src
+COPY manager/ /src/
+RUN go build -o /out/licmgr ./cmd/licmgr
+
+FROM alpine:3.18
+RUN apk add --no-cache ca-certificates
+COPY --from=build /out/licmgr /usr/local/bin/licmgr
+WORKDIR /app
+EXPOSE 8080
+ENV HW_EMULATOR_URL=http://hw-emulator:8000
+CMD ["/usr/local/bin/licmgr"]
