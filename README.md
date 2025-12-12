@@ -1,55 +1,89 @@
-# License System
+# License Manager System
 
-## Project Overview
-This project implements a licensing system for Docker-based applications. It includes a Go-based License Manager and a Python-based License Client along with a Hardware Emulator (HW Emulator) for development purposes.
+This project implements the early version of a licensing and usage-limiting system for a distributed set of Dockerized applications.
+A central **License Manager** (Go) enforces usage limits and authentication, and each app runs a **Python License Client** that registers itself, reports usage, and receives allow/deny responses.
 
-The system allows:
-- Registration of clients
-- Enforcement of usage quotas
-- Periodic reporting of usage
-- Integration with a hardware lock for license validation
+The design goal is to prevent unauthorized copies of the applications and to enforce resource-based limitations.
 
-## Current Status - Milestone 1
-- HW Emulator:
-  - Generates a hardware lock JSON file
-  - Serves `/info` and `/sign` endpoints for license verification
-- License Manager (Go):
-  - Skeleton for `/ping`, `/heartbeat`, `/register`, `/report` endpoints
-  - Stores client info in memory
-  - Tracks usage and quota enforcement
-- Basic registration and reporting flow tested locally
-- Ready for next milestone: integrating client authentication, signing, and persistent storage
 
-## Prerequisites
-- Python 3.10+ (for HW Emulator and License Client)
-- Go 1.20+ (for License Manager)
-- Optional: Docker (for running the apps in containers later)
 
-## Run Instructions
+## Components
 
-### HW Emulator
+### **License Manager (Go)**
+- HTTP-based API.
+- Validates client registration.
+- Verifies Ed25519 signatures on all client payloads.
+- Tracks usage totals and enforces limits.
+- Uses a **hardware-lock emulator** to simulate a USB dongle (private key + metadata).
+- Responds with JSON containing:
+  - allowed / denied
+  - remaining bytes
+  - action (e.g., `"disable"`)
+
+### **Hardware Lock Emulator**
+- Located in `hw-emulator/hw.json`.
+- Simulates:
+  - Dongle private key
+  - License configuration (limits, expiry, etc.)
+- If deleted or unreadable, components treat it as “hardware missing.”
+
+### **License Client (Python)**
+Used by each Docker application. Current capabilities:
+
+- Generates a unique client ID.
+- Loads private key from the hardware emulator.
+- Signs registration + usage reports (Ed25519).
+- Performs registration handshake.
+- Sends heartbeats.
+- Sends periodic usage reports with delta + total.
+- Processes allow/deny responses from manager.
+- Includes **binary integrity check**:
+  - Computes SHA256 of its own binary/script.
+  - Compares against `integrity.json`.
+  - Exits if modified.
+  - Can be bypassed using `SKIP_INTEGRITY=1` (dev only).
+
+- Prepared for future compilation via Nuitka to produce a standalone binary.
+
+
+## Current Features
+
+- Client → Manager registration flow works.
+- Usage reporting + enforcement works.
+- Signature verification is implemented.
+- HW-lock emulation layer is fully functional.
+- Anti-tamper integrity check added to the client.
+- Manager processes signed data and applies limits.
+- Test runs show allow → deny transitions when exceeding configured limit.
+
+
+
+## How to Run (Test Build)
+
+### Start Manager
 ```bash
-cd hw-emulator
-python generate_hw_json.py
-uvicorn main:app --reload --port 8081
-```
-
-### License Manager
-```bash
-cd manager/cmd/licmgr
+cd manager
 go run main.go
 ```
 
-### Testing Endpoints
-Use curl or Postman to test:
-- `GET /ping` — checks if the License Manager is running
-- `GET /heartbeat` — returns server status
-- `POST /register` — registers a new client
-- `POST /report` — reports usage for a client
-- `GET /info` — checks if HW Emulator is present
-- `POST /sign` — signs a payload using the HW Emulator
+### Run Client
+```bash
+cd client
+python3 client.py
+```
 
-## Notes
-- All current storage is in memory (for development). Persistent storage will be added in future milestones.
-- HW Emulator private keys should be kept secure.
-- Pre-commit hooks for code formatting and linting are recommended before committing changes.
+### Expected Behavior
+- Client pings/heartbeats.
+- Registration completes.
+- Two usage reports are sent.
+- Manager responds ALLOWED → DENIED once limit is exceeded.
+
+
+## Structure
+```
+/client               # Python license client + integrity check
+/manager              # Go license manager API
+/hw-emulator          # Simulated hardware lock (private key & config)
+integrity.json        # Expected SHA-256 for binary/script
+README.md
+```

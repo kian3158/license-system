@@ -6,10 +6,11 @@ services:
       - "8000:8000"
     volumes:
       - ./hw-emulator/hw.json:/app/hw.json:ro
-
   licmgr:
     build: ./manager
     ports:
       - "8080:8080"
     depends_on:
       - hw-emulator
+    environment:
+      - HW_EMULATOR_URL=http://hw-emulator:8000

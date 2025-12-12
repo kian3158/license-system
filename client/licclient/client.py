@@ -144,7 +144,6 @@ class LicenseClient:
 
 
 if __name__ == "__main__":
-    # 🔒 Integrity check happens BEFORE anything else
     check_integrity_or_exit()
 
     client = LicenseClient()

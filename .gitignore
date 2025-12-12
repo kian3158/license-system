@@ -30,3 +30,6 @@ bin/
 *.swp
 .DS_Store
 Thumbs.db
+clients_store.json
+client.dist/
+integrity.json
